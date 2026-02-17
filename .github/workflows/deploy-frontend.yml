@@ -1,0 +1,46 @@
+name: Deploy Frontend to IIS
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, windows, frontend]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install & Build
+        shell: powershell
+        run: |
+          npm ci
+          npm run build
+
+      - name: Copy dist -> Backend wwwroot
+        shell: powershell
+        run: |
+          $src = "dist"
+          if (-not (Test-Path $src)) { throw "dist folder not found. Are you using Vite?" }
+
+          $dst = "C:\deploy\Lib26\current\wwwroot"
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+
+          robocopy $src $dst /MIR
+          $code = $LASTEXITCODE
+          Write-Host "Robocopy exit code: $code"
+
+          if ($code -ge 8) {
+            Write-Error "Robocopy failed with exit code $code"
+            exit $code
+          }
+
+          exit 0
+
+      - name: Recycle IIS AppPool
+        shell: powershell
+        run: |
+          & $env:windir\System32\inetsrv\appcmd recycle apppool /apppool.name:"Lib26AppPool"
